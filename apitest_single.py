@@ -18,7 +18,7 @@ HEADERS = {
 # CSV File Name
 CSV_FILE = "legal_cases.csv"
 
-# 🛠️ Step 1: Check last completed page
+# Step 1: Check last completed page
 if os.path.exists(CSV_FILE):
     try:
         df = pd.read_csv(CSV_FILE)
@@ -28,7 +28,7 @@ if os.path.exists(CSV_FILE):
 else:
     last_page = 0  # If file doesn't exist, start from page 1
 
-print(f"🔄 Resuming from page {last_page + 1}...")
+print(f"Resuming from page {last_page + 1}...")
 
 # Start a session to maintain cookies
 session = requests.Session()
@@ -58,7 +58,7 @@ def get_explanation(case_id):
 
         if explanation_response.status_code != 200:
             print(
-                f"⚠️ Failed to fetch explanation for {case_id}, retrying in 5 seconds...")
+                f"Failed to fetch explanation for {case_id}, retrying in 5 seconds...")
             time.sleep(5)
             continue  # Retry request
 
@@ -66,7 +66,7 @@ def get_explanation(case_id):
 
         if explanation_json["metadata"]["FMC"] == "ADALET_RUNTIME_EXCEPTION":
             print(
-                f"🚨 CAPTCHA detected while fetching explanation for case {case_id}! Waiting 10 seconds...")
+                f"CAPTCHA detected while fetching explanation for case {case_id}! Waiting 10 seconds...")
             time.sleep(10)
             continue  # Retry
 
@@ -80,7 +80,7 @@ while True:
 
     # Check for early termination
     if keyboard.is_pressed("q"):
-        print("❌ Stopping early, saving progress...")
+        print("Stopping early, saving progress...")
         df.to_csv(CSV_FILE, mode="a", header=False,
                   index=False, encoding="utf-8")
         exit()
@@ -102,22 +102,22 @@ while True:
             case_list_url, json=case_list_payload, headers=HEADERS)
 
         if response.status_code != 200:
-            print("⚠️ Failed to fetch cases, retrying in 5 seconds...")
+            print("Failed to fetch cases, retrying in 5 seconds...")
             time.sleep(5)
             continue  # Retry request
 
         case_data = response.json()
 
-        # 🚨 Check if CAPTCHA is triggered
+        # Check if CAPTCHA is triggered
         if case_data["metadata"]["FMC"] == "ADALET_RUNTIME_EXCEPTION":
             print(
-                f"🚨 CAPTCHA detected on page {page}! Waiting 10 seconds before retrying...")
+                f"CAPTCHA detected on page {page}! Waiting 10 seconds before retrying...")
             time.sleep(10)  # Wait 10 seconds and retry
             continue  # Retry the request from the same page
 
         break  # If no CAPTCHA, exit retry loop and continue scraping
 
-    cases_list = case_data["data"]["data"]  # ✅ Extract case list
+    cases_list = case_data["data"]["data"]  # Extract case list
 
     if not cases_list:
         print("No more cases found, stopping.")
@@ -147,8 +147,8 @@ while True:
     else:
         df.to_csv(CSV_FILE, index=False, encoding="utf-8")  # Create new file
 
-    print(f"✅ Data saved after page {page}")
+    print(f"Data saved after page {page}")
 
     page += 1  # Move to next page
 
-print("✅ Scraping Complete!")
+print("Scraping Complete!")
