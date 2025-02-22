@@ -18,7 +18,7 @@ HEADERS = {
 # Start a session to maintain cookies
 session = requests.Session()
 
-# Step 1: Send Search Request
+# Send Search Request
 search_payload = {
     "data": {
         "aranan": "Hukuk",
@@ -55,8 +55,8 @@ while True:
 
     case_data = response.json()
 
-    # 🔥 FIX: Access the correct data structure
-    cases_list = case_data["data"]["data"]  # ✅ Extract case list
+    # FIX: Access the correct data structure
+    cases_list = case_data["data"]["data"]  # Extract case list
 
     if not cases_list:  # If there's no case data, stop
         print("No more cases found, stopping.")
@@ -64,11 +64,11 @@ while True:
 
     for case in cases_list:
         case_id = case["id"]  # Extract case ID
-        court_name = case["daire"]  # ✅ Correct key for court name
-        case_number = case["esasNo"]  # ✅ Correct key for case number
-        decision_number = case["kararNo"]  # ✅ Correct key for decision number
-        decision_date = case["kararTarihi"]  # ✅ Correct key for decision date
-        status = case["durum"]  # ✅ Correct key for status
+        court_name = case["daire"]  # Correct key for court name
+        case_number = case["esasNo"]  # Correct key for case number
+        decision_number = case["kararNo"]  # Correct key for decision number
+        decision_date = case["kararTarihi"]  # Correct key for decision date
+        status = case["durum"]  # Correct key for status
 
         # Step 3: Fetch Case Explanation
         explanation_url = f"https://emsal.uyap.gov.tr/getDokuman?id={case_id}"
