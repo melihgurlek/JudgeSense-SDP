@@ -2,8 +2,9 @@ import requests
 import time
 import pandas as pd
 import os
-import random
+import keyboard
 from bs4 import BeautifulSoup
+from concurrent.futures import ThreadPoolExecutor
 
 # Headers copied from browser's DevTools
 HEADERS = {
@@ -46,8 +47,43 @@ session.post(search_url, json=search_payload, headers=HEADERS)
 cases = []
 page = last_page + 1  # Resume from last saved page
 
+# Function to fetch case explanation
+
+
+def get_explanation(case_id):
+    explanation_url = f"https://emsal.uyap.gov.tr/getDokuman?id={case_id}"
+
+    while True:  # Retry loop for CAPTCHA on explanation request
+        explanation_response = session.get(explanation_url, headers=HEADERS)
+
+        if explanation_response.status_code != 200:
+            print(
+                f"⚠️ Failed to fetch explanation for {case_id}, retrying in 5 seconds...")
+            time.sleep(5)
+            continue  # Retry request
+
+        explanation_json = explanation_response.json()
+
+        if explanation_json["metadata"]["FMC"] == "ADALET_RUNTIME_EXCEPTION":
+            print(
+                f"🚨 CAPTCHA detected while fetching explanation for case {case_id}! Waiting 10 seconds...")
+            time.sleep(10)
+            continue  # Retry
+
+        raw_html = explanation_json.get("data", "")
+        soup = BeautifulSoup(raw_html, "html.parser")
+        return soup.get_text(separator="\n").strip()
+
+
 while True:
     print(f"Scraping page {page}...")
+
+    # Check for early termination
+    if keyboard.is_pressed("q"):
+        print("❌ Stopping early, saving progress...")
+        df.to_csv(CSV_FILE, mode="a", header=False,
+                  index=False, encoding="utf-8")
+        exit()
 
     # Corrected Payload
     case_list_payload = {
@@ -66,8 +102,8 @@ while True:
             case_list_url, json=case_list_payload, headers=HEADERS)
 
         if response.status_code != 200:
-            print("⚠️ Failed to fetch cases, retrying in 10 seconds...")
-            time.sleep(10)
+            print("⚠️ Failed to fetch cases, retrying in 5 seconds...")
+            time.sleep(5)
             continue  # Retry request
 
         case_data = response.json()
@@ -81,57 +117,27 @@ while True:
 
         break  # If no CAPTCHA, exit retry loop and continue scraping
 
-    cases_list = case_data["data"]["data"]  # Extract case list
+    cases_list = case_data["data"]["data"]  # ✅ Extract case list
 
     if not cases_list:
         print("No more cases found, stopping.")
         break
 
-    for case in cases_list:
-        case_id = case["id"]
-        court_name = case["daire"]
-        case_number = case["esasNo"]
-        decision_number = case["kararNo"]
-        decision_date = case["kararTarihi"]
-        status = case["durum"]
+    # Fetch explanations in parallel using threads (faster!)
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        explanations = list(executor.map(
+            get_explanation, [case["id"] for case in cases_list]))
 
-        # Step 4: Fetch Case Explanation
-        explanation_url = f"https://emsal.uyap.gov.tr/getDokuman?id={case_id}"
-
-        while True:  # Retry loop for CAPTCHA on explanation request
-            explanation_response = session.get(
-                explanation_url, headers=HEADERS)
-
-            if explanation_response.status_code != 200:
-                print("Failed to fetch explanation, retrying in 10 seconds...")
-                time.sleep(10)
-                continue  # Retry request
-
-            explanation_json = explanation_response.json()
-
-            if explanation_json["metadata"]["FMC"] == "ADALET_RUNTIME_EXCEPTION":
-                print(
-                    f"CAPTCHA detected while fetching explanation for case {case_id}! Waiting 10 seconds...")
-                time.sleep(10)
-                continue  # Retry
-
-            raw_html = explanation_json.get("data", "")
-            soup = BeautifulSoup(raw_html, "html.parser")
-            explanation_text = soup.get_text(separator="\n").strip()
-            break  # If no CAPTCHA, exit retry loop
-
-        # Store Case Data
+    for case, explanation_text in zip(cases_list, explanations):
         cases.append({
             "Page": page,  # Save page number for resuming
-            "Court Name": court_name,
-            "Case Number": case_number,
-            "Decision Number": decision_number,
-            "Decision Date": decision_date,
-            "Status": status,
+            "Court Name": case["daire"],
+            "Case Number": case["esasNo"],
+            "Decision Number": case["kararNo"],
+            "Decision Date": case["kararTarihi"],
+            "Status": case["durum"],
             "Explanation": explanation_text
         })
-
-        time.sleep(random.uniform(3, 6))  # Random delay
 
     # Step 5: Save Progress to CSV After Each Page
     df = pd.DataFrame(cases)
