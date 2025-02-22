@@ -1,6 +1,8 @@
 import requests
 import time
 import pandas as pd
+import os
+import random
 from bs4 import BeautifulSoup
 
 # Headers copied from browser's DevTools
@@ -9,16 +11,28 @@ HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json; charset=UTF-8",
     "Referer": "https://emsal.uyap.gov.tr/index",
-    "X-Requested-With": "XMLHttpRequest",
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-origin"
+    "X-Requested-With": "XMLHttpRequest"
 }
+
+# CSV File Name
+CSV_FILE = "legal_cases.csv"
+
+# 🛠️ Step 1: Check last completed page
+if os.path.exists(CSV_FILE):
+    try:
+        df = pd.read_csv(CSV_FILE)
+        last_page = df["Page"].max()  # Find last page number in the CSV
+    except:
+        last_page = 0  # If file is corrupted, start from the beginning
+else:
+    last_page = 0  # If file doesn't exist, start from page 1
+
+print(f"🔄 Resuming from page {last_page + 1}...")
 
 # Start a session to maintain cookies
 session = requests.Session()
 
-# Send Search Request
+# Step 2: Send Search Request
 search_payload = {
     "data": {
         "aranan": "Hukuk",
@@ -28,9 +42,9 @@ search_payload = {
 search_url = "https://emsal.uyap.gov.tr/arama"
 session.post(search_url, json=search_payload, headers=HEADERS)
 
-# Step 2: Fetch Case List
+# Step 3: Fetch Case List
 cases = []
-page = 1
+page = last_page + 1  # Resume from last saved page
 
 while True:
     print(f"Scraping page {page}...")
@@ -40,51 +54,75 @@ while True:
         "data": {
             "aranan": "Hukuk",
             "arananKelime": "Hukuk",
-            "pageSize": 10,  # Number of results per page
-            "pageNumber": page  # Current page number
+            "pageSize": 10,
+            "pageNumber": page
         }
     }
 
     case_list_url = "https://emsal.uyap.gov.tr/aramalist"
-    response = session.post(
-        case_list_url, json=case_list_payload, headers=HEADERS)
 
-    if response.status_code != 200:
-        print("Failed to fetch cases, stopping.")
-        break
+    while True:  # Loop to keep retrying on CAPTCHA
+        response = session.post(
+            case_list_url, json=case_list_payload, headers=HEADERS)
 
-    case_data = response.json()
+        if response.status_code != 200:
+            print("⚠️ Failed to fetch cases, retrying in 10 seconds...")
+            time.sleep(10)
+            continue  # Retry request
 
-    # FIX: Access the correct data structure
+        case_data = response.json()
+
+        # 🚨 Check if CAPTCHA is triggered
+        if case_data["metadata"]["FMC"] == "ADALET_RUNTIME_EXCEPTION":
+            print(
+                f"🚨 CAPTCHA detected on page {page}! Waiting 10 seconds before retrying...")
+            time.sleep(10)  # Wait 10 seconds and retry
+            continue  # Retry the request from the same page
+
+        break  # If no CAPTCHA, exit retry loop and continue scraping
+
     cases_list = case_data["data"]["data"]  # Extract case list
 
-    if not cases_list:  # If there's no case data, stop
+    if not cases_list:
         print("No more cases found, stopping.")
         break
 
     for case in cases_list:
-        case_id = case["id"]  # Extract case ID
-        court_name = case["daire"]  # Correct key for court name
-        case_number = case["esasNo"]  # Correct key for case number
-        decision_number = case["kararNo"]  # Correct key for decision number
-        decision_date = case["kararTarihi"]  # Correct key for decision date
-        status = case["durum"]  # Correct key for status
+        case_id = case["id"]
+        court_name = case["daire"]
+        case_number = case["esasNo"]
+        decision_number = case["kararNo"]
+        decision_date = case["kararTarihi"]
+        status = case["durum"]
 
-        # Step 3: Fetch Case Explanation
+        # Step 4: Fetch Case Explanation
         explanation_url = f"https://emsal.uyap.gov.tr/getDokuman?id={case_id}"
-        explanation_response = session.get(explanation_url, headers=HEADERS)
 
-        if explanation_response.status_code == 200:
-            raw_html = explanation_response.json()["data"]  # Extract raw HTML
-            # Parse with BeautifulSoup
+        while True:  # Retry loop for CAPTCHA on explanation request
+            explanation_response = session.get(
+                explanation_url, headers=HEADERS)
+
+            if explanation_response.status_code != 200:
+                print("Failed to fetch explanation, retrying in 10 seconds...")
+                time.sleep(10)
+                continue  # Retry request
+
+            explanation_json = explanation_response.json()
+
+            if explanation_json["metadata"]["FMC"] == "ADALET_RUNTIME_EXCEPTION":
+                print(
+                    f"CAPTCHA detected while fetching explanation for case {case_id}! Waiting 10 seconds...")
+                time.sleep(10)
+                continue  # Retry
+
+            raw_html = explanation_json.get("data", "")
             soup = BeautifulSoup(raw_html, "html.parser")
-            explanation_text = soup.get_text(
-                separator="\n").strip()  # Extract clean text
-        else:
-            explanation_text = "N/A"
+            explanation_text = soup.get_text(separator="\n").strip()
+            break  # If no CAPTCHA, exit retry loop
 
         # Store Case Data
         cases.append({
+            "Page": page,  # Save page number for resuming
             "Court Name": court_name,
             "Case Number": case_number,
             "Decision Number": decision_number,
@@ -93,20 +131,18 @@ while True:
             "Explanation": explanation_text
         })
 
-        # Respect server with a short delay
-        time.sleep(2)
+        time.sleep(random.uniform(3, 6))  # Random delay
 
-    # Save Progress After Each Page
+    # Step 5: Save Progress to CSV After Each Page
     df = pd.DataFrame(cases)
-    df.to_csv("legal_cases.csv", index=False, encoding="utf-8")
-    print(f"Data saved after page {page}")
+    if os.path.exists(CSV_FILE):
+        df.to_csv(CSV_FILE, mode="a", header=False,
+                  index=False, encoding="utf-8")  # Append
+    else:
+        df.to_csv(CSV_FILE, index=False, encoding="utf-8")  # Create new file
 
-    # Early Stop Option
-    user_input = input("Press Enter to continue or type 'q' to stop: ")
-    if user_input.lower() == "q":
-        print("Stopping early, saving progress...")
-        break
+    print(f"✅ Data saved after page {page}")
 
     page += 1  # Move to next page
 
-print("Scraping Complete! Data saved to 'legal_cases.csv'.")
+print("✅ Scraping Complete!")
