@@ -16,3 +16,10 @@ __pycache__/
 # Ignore virtual environments
 venv/
 .env/
+main3.py
+main (1).py
+selenium_parent.py
+selenium_test.py
+selenium_test2.py
+
+
